@@ -1,2 +1,5 @@
 pwn3_bins/
 PwnAdventure3/
+__pycache__/
+peda-session*
+pyenv/

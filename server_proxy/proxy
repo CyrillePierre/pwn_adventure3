@@ -2,24 +2,54 @@
 import socket
 import select
 import threading
+import queue
+import sys
+import importlib
+import watchdog.observers as wd_obs
+import watchdog.events as wd_evts
 
-def handle_client(s_client, port):
+import parser
+
+local_bind_address  = '0.0.0.0'
+#game_server_address = '192.168.99.35'
+game_server_address = '172.18.0.2'
+first_server_port   = 3000
+nb_server_instance  = 5
+socket_buffer_size  = 8192
+parser_queue_size   = 10
+
+
+def handle_client(s_client, addr, port, data_queue):
     s_game = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s_game.connect(('192.168.99.35', port))
+    s_game.connect((game_server_address, port))
+
+    def push(*args):
+        try: data_queue.put_nowait(args)
+        except queue.Full:
+            print('[!] The queue is full.', file=sys.stderr)
 
     def listen_client():
         while 1:
-            data = s_client.recv(8192)
+            try: data = s_client.recv(socket_buffer_size)
+            except: break
             if not data: break
-            print('[client] raw: ', data)
-            s_game.sendall(data)
+            try: s_game.sendall(data)
+            except: break
+            push('c', data)
+        print('[c] Connection closed:', addr)
+        s_game.close()
 
     def listen_server():
         while 1:
-            data = s_game.recv(8192)
-            if not data: break
-            print('[server] raw: ', data)
-            s_client.sendall(data)
+            try: data = s_game.recv(socket_buffer_size)
+            except: break
+            if not data: 
+                print('[!] Connection reset by server', file=sys.stderr)
+                break
+            try: s_client.sendall(data)
+            except: break
+            push('s', data)
+        s_client.close()
 
     th_client = threading.Thread(target=listen_client)
     th_server = threading.Thread(target=listen_server)
@@ -29,19 +59,66 @@ def handle_client(s_client, port):
     th_server.start()
 
 
-socks = []
-for i in range(5):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(('0.0.0.0', 3000 + i))
-    s.listen(1)
-    socks.append(s)
+def start_parser():
+    lock = threading.Lock()
 
-while 1:
-    rl, wl, el = select.select(socks, [], [])
-    for s in rl:
-        s_client, addr = s.accept()
-        print('[accept] New connection: ', addr)
-        handle_client(s_client, s.getsockname()[1])
+    # blocking queue used to give data to the parser thread
+    data_queue = queue.Queue(parser_queue_size)
 
-for s in socks: s.close()
+    def handle_data():
+        while 1:
+            name, data = data_queue.get() # blocking
+            lock.acquire()
+            parser.parse(name, data)
+            lock.release()
+
+    th_parser = threading.Thread(target=handle_data)
+    th_parser.daemon = True
+    th_parser.start()
+
+    # module reloader
+    class ParserReloader(wd_evts.PatternMatchingEventHandler):
+        def __init__(self):
+            super().__init__(['./parser.py'])
+
+        def on_modified(self, evt):
+            try: 
+                lock.acquire()
+                importlib.reload(parser)
+                lock.release()
+                print('[*] parser reloaded')
+            except:
+                lock.release()
+                print('[!] failed to reload parser', file=sys.stderr)
+
+    observer = wd_obs.inotify.InotifyObserver()
+    observer.schedule(ParserReloader(), '.')
+    observer.start()
+
+    return data_queue
+
+
+def main():
+    # create server sockets
+    socks = []
+    for i in range(nb_server_instance):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((local_bind_address, first_server_port + i))
+        s.listen(1)
+        socks.append(s)
+
+    data_queue = start_parser()
+
+    # accept loop
+    while 1:
+        rl, wl, el = select.select(socks, [], [])
+        for s in rl:
+            s_client, addr = s.accept()
+            print('[accept] New connection:', addr)
+            handle_client(s_client, addr, s.getsockname()[1], data_queue)
+
+    for s in socks: s.close()
+
+
+main()
