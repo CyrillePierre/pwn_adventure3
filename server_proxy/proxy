@@ -46,9 +46,7 @@ def handle_client(s_client, addr, port, data_queue):
         while 1:
             try: 
                 data = s_game.recv(socket_buffer_size)
-                if not data: 
-                    print('[!] Connection reset by server', file=sys.stderr)
-                    break
+                if not data: break
                 s_client.sendall(data)
             except: break
             push('s', data)
