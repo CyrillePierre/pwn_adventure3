@@ -7,6 +7,7 @@ import sys
 import importlib
 import watchdog.observers as wd_obs
 import watchdog.events as wd_evts
+import traceback
 
 import parser
 
@@ -17,6 +18,7 @@ first_server_port   = 3000
 nb_server_instance  = 5
 socket_buffer_size  = 8192
 parser_queue_size   = 10
+inotify_timeout     = 60 # seconds
 
 
 def handle_client(s_client, addr, port, data_queue):
@@ -26,14 +28,15 @@ def handle_client(s_client, addr, port, data_queue):
     def push(*args):
         try: data_queue.put_nowait(args)
         except queue.Full:
-            print('[!] The queue is full.', file=sys.stderr)
+            data_queue.get_nowait()
+            data_queue.put_nowait(args)
 
     def listen_client():
         while 1:
-            try: data = s_client.recv(socket_buffer_size)
-            except: break
-            if not data: break
-            try: s_game.sendall(data)
+            try: 
+                data = s_client.recv(socket_buffer_size)
+                if not data: break
+                s_game.sendall(data)
             except: break
             push('c', data)
         print('[c] Connection closed:', addr)
@@ -41,12 +44,12 @@ def handle_client(s_client, addr, port, data_queue):
 
     def listen_server():
         while 1:
-            try: data = s_game.recv(socket_buffer_size)
-            except: break
-            if not data: 
-                print('[!] Connection reset by server', file=sys.stderr)
-                break
-            try: s_client.sendall(data)
+            try: 
+                data = s_game.recv(socket_buffer_size)
+                if not data: 
+                    print('[!] Connection reset by server', file=sys.stderr)
+                    break
+                s_client.sendall(data)
             except: break
             push('s', data)
         s_client.close()
@@ -61,6 +64,7 @@ def handle_client(s_client, addr, port, data_queue):
 
 def start_parser():
     lock = threading.Lock()
+    parser_is_valid = [True]
 
     # blocking queue used to give data to the parser thread
     data_queue = queue.Queue(parser_queue_size)
@@ -69,7 +73,10 @@ def start_parser():
         while 1:
             name, data = data_queue.get() # blocking
             lock.acquire()
-            parser.parse(name, data)
+            try: 
+                if parser_is_valid[0]: parser.parse(name, data)
+            except: 
+                print('[!] Error occured in parse() function', file=sys.stderr)
             lock.release()
 
     th_parser = threading.Thread(target=handle_data)
@@ -82,16 +89,18 @@ def start_parser():
             super().__init__(['./parser.py'])
 
         def on_modified(self, evt):
+            lock.acquire()
             try: 
-                lock.acquire()
                 importlib.reload(parser)
-                lock.release()
+                parser_is_valid[0] = True
                 print('[*] parser reloaded')
             except:
-                lock.release()
+                parser_is_valid[0] = False
                 print('[!] failed to reload parser', file=sys.stderr)
+                traceback.print_exc()
+            lock.release()
 
-    observer = wd_obs.inotify.InotifyObserver()
+    observer = wd_obs.inotify.InotifyObserver(inotify_timeout)
     observer.schedule(ParserReloader(), '.')
     observer.start()
 
