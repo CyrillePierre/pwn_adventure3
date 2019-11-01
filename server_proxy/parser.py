@@ -10,7 +10,7 @@ def raw(data):
     for b in data[2:]:
         s += '{:02x} '.format(b)
     s = s[:-1] + ']'
-    return s
+    return s, b''
 
 
 def move(data, offset=2):
@@ -28,37 +28,35 @@ def move(data, offset=2):
 
     s = '{} pos[{:6.0f}{:6.0f}{:6.0f}]  rpy[{:7.1f}{:7.1f}{:7.1f}]  btn[{}{}{}{}]'.format(
             data[:2].decode(), x,y,z, roll,pitch,yaw, bx,by,bj,bw)
-    return s
+    return s, data[22:]
 
 
 def jump(data):
     global jump_state
-    offset = 0
-    while data[offset:offset+2] == b'jp':
-        jump_state = data[offset+2]
-        offset += 3
-#    return raw(data)
-    return move(data, offset+2)
+    jump_state = data[2]
+    return '', data[3:]
 
 
 def run(data):
     global walk_state
-    offset = 0
-    while data[offset:offset+2] == b'rn':
-        walk_state = not data[2]
-        offset += 3
-    return move(data, offset+2)
+    walk_state = not data[2]
+    return '', data[3:]
+
 
 def parse(name, data):
     cases = { 
-        b'\0\0': (0, lambda x: 'ok'),
+        b'\0\0': (0, lambda x: ('ok', b'')),
         b'mv': (1, move),
-        b'jp': (1, jump),
-        b'rn': (1, run),
+        b'jp': (0, jump),
+        b'rn': (0, run),
     }
-    default = (1, raw)
+    default = (0, raw)
+    
+    msgs = []
+    while len(data):
+        enabled, fn = cases.get(data[:2], default)
+        s, data = fn(data)
+        if enabled: msgs.append(s)
 
-    enabled, fn = cases.get(data[:2], default)
-    if enabled: 
-        print('[{}] '.format(name), end='')
-        print(fn(data))
+    if len(msgs):
+        print('[{}] '.format(name).join(msgs))
