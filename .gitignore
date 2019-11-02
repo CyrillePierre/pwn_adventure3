@@ -4,3 +4,4 @@ __pycache__/
 peda-session*
 pyenv/
 pwn_adventure3.*
+build/
