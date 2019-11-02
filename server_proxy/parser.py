@@ -85,6 +85,16 @@ def select_item(data, name):
         return s, data[5:]
 
 
+def active_item(data):
+    name_len, p,y,r = struct.unpack_from('<H3I', data, 2)
+    name_end = 4 + name_len
+    name = data[4:name_end].decode()
+#    s = '{} use[{}] rpy[{} {} {}]'.format(
+#        data[:2].decode(), name, r,p,y)
+    s = '{} use[{}] {}'.format(data[:2].decode(), name, raw_str(data[name_end:name_end+12]))
+    return s, data[name_end+12:]
+
+
 def parse(name, data):
     cases = { 
         b'\0\0': (0, lambda x: ('ok', b'')),
@@ -93,9 +103,10 @@ def parse(name, data):
         b'rn': (0, run),
         b'mk': (1, make),
         b'#*': (1, lambda x: chat(x, name)),
-        b's=': (1, lambda x: select_item(x, name)),
+        b's=': (0, lambda x: select_item(x, name)),
+        b'*i': (1, active_item)
     }
-    default = (1, unknown)
+    default = (0, unknown)
     
     msgs = []
     while len(data):

@@ -3,3 +3,4 @@ PwnAdventure3/
 __pycache__/
 peda-session*
 pyenv/
+pwn_adventure3.*
