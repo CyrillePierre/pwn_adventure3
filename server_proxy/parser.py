@@ -38,7 +38,7 @@ def move(data):
 def jump(data):
     global jump_state
     jump_state = data[2]
-    return '', data[3:]
+    return 'jp [{}]'.format(jump_state), data[3:]
 
 
 def run(data):
@@ -99,7 +99,7 @@ def parse(name, data):
     cases = { 
         b'\0\0': (0, lambda x: ('ok', b'')),
         b'mv': (0, move),
-        b'jp': (0, jump),
+        b'jp': (1, jump),
         b'rn': (0, run),
         b'mk': (1, make),
         b'#*': (1, lambda x: chat(x, name)),

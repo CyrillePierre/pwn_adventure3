@@ -5,3 +5,4 @@ peda-session*
 pyenv/
 pwn_adventure3.*
 build/
+.gdb_history

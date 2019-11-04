@@ -12,8 +12,8 @@ import traceback
 import parser
 
 local_bind_address  = '0.0.0.0'
-#game_server_address = '192.168.99.35'
-game_server_address = '172.18.0.2'
+game_server_address = '192.168.99.35'
+#game_server_address = '172.18.0.2'
 first_server_port   = 3000
 nb_server_instance  = 5
 socket_buffer_size  = 8192
